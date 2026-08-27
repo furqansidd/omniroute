@@ -83,7 +83,7 @@ export class AuthService {
     let tenant;
     if (dto.companyName) {
       tenant = await prisma.tenant.findFirst({
-        where: { companyName: { contains: dto.companyName } }
+        where: { companyName: { contains: dto.companyName, mode: 'insensitive' } }
       });
     }
 

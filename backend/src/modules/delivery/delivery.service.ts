@@ -58,7 +58,7 @@ export class DeliveryService {
               tenantId,
               productId: item.productId,
               riderId,
-              qty: item.qty,
+              qty: -Math.abs(item.qty),
               transactionType: 'deliver',
               referenceId: `DELIVERY-${delivery.id}`
             }
@@ -120,10 +120,13 @@ export class DeliveryService {
             data: {
               tenantId,
               customerId: delivery.order.customerId,
+              riderId,
               voucherNumber,
+              voucherType: 'receipt',
+              category: 'rider_route_collection',
               amount: dto.cashCollected,
               paymentMethod: 'cash',
-              notes: `Cash collected by rider on delivery ${delivery.order.orderNumber}`
+              notes: `Route cash collected by rider on delivery ${delivery.order.orderNumber}`
             }
           });
         }
@@ -135,7 +138,7 @@ export class DeliveryService {
       }
 
       return updatedDelivery;
-    });
+    }, { timeout: 30000 });
   }
 
   static async listDeliveries(tenantId: string, query: { status?: string; riderId?: string }) {

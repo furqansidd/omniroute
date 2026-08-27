@@ -51,12 +51,23 @@ export class TenantService {
       throw new Error('A user account with this email or phone already exists');
     }
 
-    // Retrieve Tenant Owner system role
-    const ownerRole = await prisma.role.findFirst({
-      where: { name: 'Tenant Owner/Admin', tenantId: null }
+    // Retrieve Tenant Owner system role (must NOT be Super Admin)
+    let ownerRole = await prisma.role.findFirst({
+      where: {
+        name: 'Tenant Owner/Admin',
+        tenantId: null
+      }
     });
+
     if (!ownerRole) {
-      throw new Error('System roles not seeded properly. Please run seed script first.');
+      ownerRole = await prisma.role.create({
+        data: {
+          name: 'Tenant Owner/Admin',
+          description: 'Business owner with full rights',
+          isSystemRole: true,
+          tenantId: null
+        }
+      });
     }
 
     const passwordHash = await hashPassword(ownerPassword);

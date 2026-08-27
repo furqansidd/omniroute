@@ -39,6 +39,13 @@ export interface PurchaseOrder {
   }>;
 }
 
+export interface POFormItem {
+  productId: string;
+  customName: string;
+  expectedQty: number;
+  unitPrice: number;
+}
+
 export const PurchaseManagement: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'orders' | 'vendors'>('orders');
   const [vendors, setVendors] = useState<Vendor[]>([]);
@@ -54,7 +61,17 @@ export const PurchaseManagement: React.FC = () => {
 
   // Form states
   const [vendorForm, setVendorForm] = useState({ name: '', phone: '', email: '', address: '', paymentTerms: 'net_30' });
-  const [poForm, setPoForm] = useState({ vendorId: '', notes: '', expectedDeliveryDate: '', items: [{ productId: '', expectedQty: 100, unitPrice: 150 }] });
+  const [poForm, setPoForm] = useState<{
+    vendorId: string;
+    notes: string;
+    expectedDeliveryDate: string;
+    items: POFormItem[];
+  }>({
+    vendorId: '',
+    notes: '',
+    expectedDeliveryDate: '',
+    items: [{ productId: '', customName: 'Raw Milk (Liters)', expectedQty: 100, unitPrice: 150 }]
+  });
   const [grnItems, setGrnItems] = useState<Array<{ productId: string; expectedQty: number; receivedQty: number; unitCost: number }>>([]);
   const [grnNotes, setGrnNotes] = useState('');
 
@@ -103,20 +120,72 @@ export const PurchaseManagement: React.FC = () => {
 
   const handleCreatePO = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!poForm.vendorId || poForm.items.some((i) => !i.productId || i.expectedQty <= 0)) {
-      alert('Please fill out all line item fields correctly');
+    if (!poForm.vendorId) {
+      alert('Please select a supplier/vendor');
+      return;
+    }
+
+    if (poForm.items.some((i) => (!i.productId && !i.customName.trim()) || i.expectedQty <= 0)) {
+      alert('Please fill out all item names, quantity/pieces, and unit prices correctly');
       return;
     }
 
     try {
+      // Resolve custom typed item names by auto-creating missing products
+      const resolvedItems = [];
+      for (const item of poForm.items) {
+        let pId = item.productId;
+        if (!pId && item.customName.trim()) {
+          // Find if product with same name exists
+          const existing = products.find(p => p.name.toLowerCase() === item.customName.trim().toLowerCase());
+          if (existing) {
+            pId = existing.id;
+          } else {
+            const createRes = await apiRequest<Product>('/products', {
+              method: 'POST',
+              body: JSON.stringify({
+                name: item.customName.trim(),
+                sku: `RAW-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 100)}`,
+                category: 'raw_material',
+                unit: 'unit',
+                price: item.unitPrice,
+                costPrice: item.unitPrice,
+                productType: 'raw_material'
+              })
+            });
+            if (createRes.success && createRes.data) {
+              pId = createRes.data.id;
+            }
+          }
+        }
+
+        if (!pId) {
+          alert(`Failed to prepare product for ${item.customName}`);
+          return;
+        }
+
+        resolvedItems.push({
+          productId: pId,
+          expectedQty: item.expectedQty,
+          unitPrice: item.unitPrice
+        });
+      }
+
       const res = await apiRequest('/purchase/orders', {
         method: 'POST',
-        body: JSON.stringify(poForm)
+        body: JSON.stringify({
+          vendorId: poForm.vendorId,
+          expectedDeliveryDate: poForm.expectedDeliveryDate,
+          notes: poForm.notes,
+          items: resolvedItems
+        })
       });
+
       if (res.success) {
         setShowPOModal(false);
-        setPoForm({ vendorId: '', notes: '', expectedDeliveryDate: '', items: [{ productId: '', expectedQty: 100, unitPrice: 150 }] });
+        setPoForm({ vendorId: '', notes: '', expectedDeliveryDate: '', items: [{ productId: '', customName: 'Raw Milk (Liters)', expectedQty: 100, unitPrice: 150 }] });
         fetchData();
+        alert('Purchase order issued successfully!');
       } else {
         alert(res.error || 'Failed to create Purchase Order');
       }
@@ -168,7 +237,7 @@ export const PurchaseManagement: React.FC = () => {
   const addItemToPO = () => {
     setPoForm((prev) => ({
       ...prev,
-      items: [...prev.items, { productId: '', expectedQty: 50, unitPrice: 100 }]
+      items: [...prev.items, { productId: '', customName: 'Packaging Pouches / Packets', expectedQty: 100, unitPrice: 3 }]
     }));
   };
 
@@ -180,6 +249,7 @@ export const PurchaseManagement: React.FC = () => {
   };
 
   const totalVendorPayables = vendors.reduce((sum, v) => sum + v.balancePayable, 0);
+  const grandPOTotal = poForm.items.reduce((sum, i) => sum + (i.expectedQty * i.unitPrice), 0);
 
   return (
     <div style={{ padding: '24px', backgroundColor: '#0f172a', color: '#f8fafc', minHeight: '100vh', fontFamily: 'Inter, sans-serif' }}>
@@ -421,92 +491,167 @@ export const PurchaseManagement: React.FC = () => {
 
       {/* Modal: Create PO */}
       {showPOModal && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 100 }}>
-          <div style={{ backgroundColor: '#1e293b', width: '600px', borderRadius: '12px', padding: '24px', border: '1px solid #334155', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h2 style={{ fontSize: '20px', margin: '0 0 16px 0', color: '#38bdf8' }}>Issue New Purchase Order</h2>
-            <form onSubmit={handleCreatePO} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 100, backdropFilter: 'blur(4px)' }}>
+          <div style={{ backgroundColor: '#1e293b', width: '720px', borderRadius: '16px', padding: '24px', border: '1px solid #334155', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', borderBottom: '1px solid #334155', paddingBottom: '12px' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>Select Supplier / Vendor *</label>
+                <h2 style={{ fontSize: '20px', margin: 0, fontWeight: '700', color: '#38bdf8' }}>Issue New Purchase Order</h2>
+                <p style={{ fontSize: '12px', color: '#94a3b8', margin: '2px 0 0 0' }}>Add item details, quantities (pieces/liters), and prices per unit</p>
+              </div>
+              <button onClick={() => setShowPOModal(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '20px', cursor: 'pointer' }}>✕</button>
+            </div>
+
+            <form onSubmit={handleCreatePO} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#cbd5e1', marginBottom: '6px' }}>Select Supplier / Vendor *</label>
                 <select
                   required
                   value={poForm.vendorId}
                   onChange={(e) => setPoForm({ ...poForm, vendorId: e.target.value })}
-                  style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #334155', backgroundColor: '#0f172a', color: '#ffffff' }}
+                  style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #334155', backgroundColor: '#0f172a', color: '#ffffff', fontSize: '14px', fontWeight: '500' }}
                 >
                   <option value="">-- Choose Vendor --</option>
                   {vendors.map((v) => (
                     <option key={v.id} value={v.id}>
-                      {v.name} (Payable: Rs. {v.balancePayable.toLocaleString()})
+                      {v.name} (Payable Balance: Rs. {v.balancePayable.toLocaleString()})
                     </option>
                   ))}
                 </select>
               </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '6px' }}>Order Line Items</label>
-                {poForm.items.map((item, idx) => (
-                  <div key={idx} style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
-                    <select
-                      required
-                      value={item.productId}
-                      onChange={(e) => {
-                        const newItems = [...poForm.items];
-                        newItems[idx].productId = e.target.value;
-                        const prod = products.find((p) => p.id === e.target.value);
-                        if (prod && prod.costPrice) newItems[idx].unitPrice = prod.costPrice;
-                        setPoForm({ ...poForm, items: newItems });
-                      }}
-                      style={{ flex: 2, padding: '8px', borderRadius: '6px', border: '1px solid #334155', backgroundColor: '#0f172a', color: '#ffffff' }}
-                    >
-                      <option value="">-- Select Raw Material / Packaging Item --</option>
-                      {products
-                        .filter((p) => p.productType !== 'finished_good')
-                        .map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name} [{p.productType ? p.productType.toUpperCase().replace('_', ' ') : 'RAW MATERIAL'}]
-                          </option>
-                        ))}
-                    </select>
+              {/* Order Line Items Section */}
+              <div style={{ backgroundColor: '#0f172a', borderRadius: '12px', padding: '16px', border: '1px solid #334155' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '700', color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Order Line Items ({poForm.items.length})
+                  </label>
+                  <span style={{ fontSize: '12px', color: '#94a3b8' }}>Type custom name or select catalog item</span>
+                </div>
 
-                    <input
-                      type="number"
-                      required
-                      min={1}
-                      placeholder="Qty"
-                      value={item.expectedQty}
-                      onChange={(e) => {
-                        const newItems = [...poForm.items];
-                        newItems[idx].expectedQty = Number(e.target.value);
-                        setPoForm({ ...poForm, items: newItems });
-                      }}
-                      style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid #334155', backgroundColor: '#0f172a', color: '#ffffff' }}
-                    />
+                {/* Table Header Labels */}
+                <div style={{ display: 'grid', gridTemplateColumns: '2.5fr 1.2fr 1.2fr 1.2fr 40px', gap: '8px', marginBottom: '8px', paddingHorizontal: '4px', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>
+                  <div>Item Description / Product *</div>
+                  <div>Pieces / Qty *</div>
+                  <div>Unit Price (Rs.) *</div>
+                  <div>Total Line (Rs.)</div>
+                  <div></div>
+                </div>
 
-                    <input
-                      type="number"
-                      required
-                      min={0}
-                      placeholder="Unit Price"
-                      value={item.unitPrice}
-                      onChange={(e) => {
-                        const newItems = [...poForm.items];
-                        newItems[idx].unitPrice = Number(e.target.value);
-                        setPoForm({ ...poForm, items: newItems });
-                      }}
-                      style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid #334155', backgroundColor: '#0f172a', color: '#ffffff' }}
-                    />
+                {/* Item Rows */}
+                {poForm.items.map((item, idx) => {
+                  const lineTotal = (item.expectedQty || 0) * (item.unitPrice || 0);
+                  return (
+                    <div key={idx} style={{ display: 'grid', gridTemplateColumns: '2.5fr 1.2fr 1.2fr 1.2fr 40px', gap: '8px', marginBottom: '10px', alignItems: 'center', backgroundColor: '#1e293b', padding: '10px', borderRadius: '8px', border: '1px solid #334155' }}>
+                      {/* Item Name Input or Quick Select */}
+                      <div>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. Raw Milk 1L / Pouches"
+                          value={item.customName}
+                          onChange={(e) => {
+                            const newItems = [...poForm.items];
+                            newItems[idx].customName = e.target.value;
+                            newItems[idx].productId = '';
+                            setPoForm({ ...poForm, items: newItems });
+                          }}
+                          style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #334155', backgroundColor: '#0f172a', color: '#ffffff', fontSize: '13px', fontWeight: '600' }}
+                        />
+                        {products.length > 0 && (
+                          <select
+                            value={item.productId}
+                            onChange={(e) => {
+                              const selectedId = e.target.value;
+                              const prod = products.find((p) => p.id === selectedId);
+                              const newItems = [...poForm.items];
+                              newItems[idx].productId = selectedId;
+                              if (prod) {
+                                newItems[idx].customName = prod.name;
+                                if (prod.costPrice) newItems[idx].unitPrice = prod.costPrice;
+                              }
+                              setPoForm({ ...poForm, items: newItems });
+                            }}
+                            style={{ width: '100%', marginTop: '4px', padding: '4px 8px', borderRadius: '4px', border: 'none', backgroundColor: '#334155', color: '#94a3b8', fontSize: '11px' }}
+                          >
+                            <option value="">-- Quick fill from Catalog --</option>
+                            {products.map((p) => (
+                              <option key={p.id} value={p.id}>{p.name} (Rs. {p.costPrice})</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
 
-                    {poForm.items.length > 1 && (
-                      <button type="button" onClick={() => removeItemFromPO(idx)} style={{ color: '#f43f5e', background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px' }}>
-                        ✕
-                      </button>
-                    )}
-                  </div>
-                ))}
+                      {/* Quantity / Pieces Input */}
+                      <div>
+                        <input
+                          type="number"
+                          required
+                          min={1}
+                          placeholder="e.g. 100"
+                          value={item.expectedQty || ''}
+                          onChange={(e) => {
+                            const newItems = [...poForm.items];
+                            newItems[idx].expectedQty = Number(e.target.value);
+                            setPoForm({ ...poForm, items: newItems });
+                          }}
+                          style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #334155', backgroundColor: '#0f172a', color: '#ffffff', fontSize: '13px', fontWeight: '700' }}
+                        />
+                        <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px', textAlign: 'center' }}>Pieces/Units</div>
+                      </div>
 
-                <button type="button" onClick={addItemToPO} style={{ background: 'none', border: '1px dashed #38bdf8', color: '#38bdf8', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer', marginTop: '4px' }}>
-                  + Add Another Item
+                      {/* Unit Price Input */}
+                      <div>
+                        <input
+                          type="number"
+                          required
+                          min={0}
+                          placeholder="e.g. 150"
+                          value={item.unitPrice || ''}
+                          onChange={(e) => {
+                            const newItems = [...poForm.items];
+                            newItems[idx].unitPrice = Number(e.target.value);
+                            setPoForm({ ...poForm, items: newItems });
+                          }}
+                          style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #334155', backgroundColor: '#0f172a', color: '#38bdf8', fontSize: '13px', fontWeight: '700' }}
+                        />
+                        <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px', textAlign: 'center' }}>Rs. / Piece</div>
+                      </div>
+
+                      {/* Line Total Calculation */}
+                      <div style={{ backgroundColor: '#0f172a', padding: '8px', borderRadius: '6px', border: '1px solid #334155', textAlign: 'center' }}>
+                        <div style={{ fontSize: '12px', fontWeight: '800', color: '#10b981' }}>Rs. {lineTotal.toLocaleString()}</div>
+                      </div>
+
+                      {/* Remove Row Button */}
+                      <div style={{ textAlign: 'center' }}>
+                        {poForm.items.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeItemFromPO(idx)}
+                            style={{ color: '#f43f5e', backgroundColor: '#334155', border: 'none', borderRadius: '6px', width: '28px', height: '28px', cursor: 'pointer', fontWeight: 'bold' }}
+                            title="Remove Line Item"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <button
+                  type="button"
+                  onClick={addItemToPO}
+                  style={{ backgroundColor: '#1e293b', border: '1px dashed #38bdf8', color: '#38bdf8', padding: '8px 16px', borderRadius: '8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '6px' }}
+                >
+                  + Add Another Item Line
                 </button>
+
+                {/* PO Total Summary */}
+                <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px border #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '13px', color: '#94a3b8', fontWeight: '500' }}>Grand Total PO Value:</span>
+                  <span style={{ fontSize: '18px', fontWeight: '800', color: '#10b981' }}>Rs. {grandPOTotal.toLocaleString()}</span>
+                </div>
               </div>
 
               <div>
@@ -523,8 +668,8 @@ export const PurchaseManagement: React.FC = () => {
                 <button type="button" onClick={() => setShowPOModal(false)} style={{ padding: '10px 16px', borderRadius: '6px', border: '1px solid #334155', backgroundColor: 'transparent', color: '#cbd5e1', cursor: 'pointer' }}>
                   Cancel
                 </button>
-                <button type="submit" style={{ padding: '10px 20px', borderRadius: '6px', border: 'none', backgroundColor: '#0284c7', color: '#ffffff', fontWeight: '600', cursor: 'pointer' }}>
-                  Issue Purchase Order
+                <button type="submit" style={{ padding: '10px 20px', borderRadius: '6px', border: 'none', backgroundColor: '#0284c7', color: '#ffffff', fontWeight: '700', cursor: 'pointer', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.4)' }}>
+                  Issue Purchase Order (Rs. {grandPOTotal.toLocaleString()})
                 </button>
               </div>
             </form>

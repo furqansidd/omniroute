@@ -262,6 +262,6 @@ export class PurchaseService {
       });
 
       return { grn, totalReceivedCost, journalEntry };
-    });
+    }, { timeout: 30000 });
   }
 }
