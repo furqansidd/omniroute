@@ -11,8 +11,6 @@
   },
   "dependencies": {
     "expo": "~54.0.0",
-    "expo-battery": "~10.0.8",
-    "expo-location": "~19.0.8",
     "expo-status-bar": "~3.0.9",
     "node-domexception": "^2.0.2",
     "react": "19.1.0",
@@ -23,6 +21,9 @@
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
+    "@babel/plugin-transform-class-properties": "^7.22.0",
+    "@babel/plugin-transform-private-methods": "^7.22.0",
+    "@babel/plugin-transform-private-property-in-object": "^7.22.0",
     "@types/react": "~19.1.10",
     "babel-preset-expo": "~54.0.10",
     "typescript": "^5.1.3"

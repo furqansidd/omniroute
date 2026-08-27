@@ -23,12 +23,13 @@ export class FinanceController {
   static async getVouchers(req: Request, res: Response) {
     try {
       const tenantId = req.user!.tenantId;
-      const { voucherType, category, customerId, search, page, limit } = req.query;
+      const { voucherType, category, customerId, vendorId, search, page, limit } = req.query;
 
       const result = await financeService.getVouchers(tenantId, {
         voucherType: voucherType as string,
         category: category as string,
         customerId: customerId as string,
+        vendorId: vendorId as string,
         search: search as string,
         page: page ? parseInt(page as string, 10) : 1,
         limit: limit ? parseInt(limit as string, 10) : 20
@@ -80,11 +81,10 @@ export class FinanceController {
     }
   }
 
-  static async getBalanceSheetReport(req: Request, res: Response) {
+  static async getFinancialOverview(req: Request, res: Response) {
     try {
       const tenantId = req.user!.tenantId;
-      const { asOfDate } = req.query;
-      const result = await financeService.getBalanceSheetReport(tenantId, asOfDate as string);
+      const result = await financeService.getFinancialOverview(tenantId);
       res.json({ success: true, data: result });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });

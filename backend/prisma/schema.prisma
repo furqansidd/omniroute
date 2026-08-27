@@ -45,6 +45,10 @@ model Tenant {
   messageLogs      MessageLog[]
   productionBatches ProductionBatch[]
   subscriptionPayments SubscriptionPayment[]
+  vendors          Vendor[]
+  purchaseOrders   PurchaseOrder[]
+  goodsReceipts    GoodsReceipt[]
+  boms             BillOfMaterials[]
 }
 
 model TenantSettings {
@@ -277,8 +281,12 @@ model Product {
   name                    String
   sku                     String
   category                String   // water_bottle, milk, lpg_cylinder, oil_can, oil_drum
+  productType             String   @default("finished_good") // raw_material, packaging, finished_good, returnable_container
   unit                    String   @default("unit") // unit, liter, kg
   price                   Float
+  costPrice               Float    @default(0.0)
+  depositPrice            Float    @default(0.0)
+  reorderLevel            Int      @default(10)
   isReturnableContainer   Boolean  @default(false)
   serialTrackingRequired  Boolean  @default(false)
   createdAt               DateTime @default(now())
@@ -293,6 +301,10 @@ model Product {
   breakageLogs            BreakageWastageLog[]
   invoiceItems            InvoiceItem[]
   productionBatches       ProductionBatch[]
+  bomsAsFinished          BillOfMaterials[]       @relation("FinishedProductBOM")
+  bomItems                BOMItem[]
+  poItems                 PurchaseOrderItem[]
+  grnItems                GoodsReceiptItem[]
 
   @@unique([tenantId, sku])
   @@index([tenantId])
@@ -462,6 +474,7 @@ model PaymentVoucher {
   id              String   @id @default(uuid())
   tenantId        String
   customerId      String?
+  vendorId        String?
   voucherNumber   String
   voucherType     String   @default("receipt") // receipt, payment, debit_note, credit_note
   category        String   @default("customer_collection") // customer_collection, fuel_expense, rider_payout, supplier_payment, equipment_purchase, other
@@ -474,10 +487,12 @@ model PaymentVoucher {
 
   tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   customer        Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  vendor          Vendor?   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, voucherNumber])
   @@index([tenantId])
   @@index([customerId])
+  @@index([vendorId])
 }
 
 model JournalEntry {
@@ -500,9 +515,10 @@ model Ledger {
   id              String        @id @default(uuid())
   tenantId        String
   customerId      String?
+  vendorId        String?
   journalEntryId  String
   accountCategory String        @default("asset") // asset, liability, equity, revenue, expense
-  accountName     String        @default("General") // Accounts Receivable, Cash, Delivery Sales, Operating Expense, Container Deposit
+  accountName     String        @default("General") // Accounts Receivable, Accounts Payable, Cash, Delivery Sales, Operating Expense, Container Deposit
   description     String?
   debit           Float         @default(0.0)
   credit          Float         @default(0.0)
@@ -511,10 +527,12 @@ model Ledger {
 
   tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   customer        Customer?     @relation(fields: [customerId], references: [id])
+  vendor          Vendor?       @relation(fields: [vendorId], references: [id])
   journalEntry    JournalEntry  @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([customerId])
+  @@index([vendorId])
 }
 
 // ----------------------------------------------------
@@ -607,31 +625,165 @@ model MessageLog {
 // 11. PRODUCTION & QC BATCHES
 // ----------------------------------------------------
 model ProductionBatch {
-  id                String   @id @default(uuid())
-  tenantId          String
-  warehouseId       String
-  finishedProductId String
-  batchNumber       String
-  industryType      String   @default("water") // water, oil, milk, lpg
-  inputQty          Float    @default(0.0)
-  outputQty         Float
-  qualityPassed     Boolean  @default(true)
-  tdsLevel          Float?   // Water TDS (ppm)
-  phLevel           Float?   // Water Ph
-  viscosityGrade    String?  // Oil viscosity
-  notes             String?
-  producedById      String
-  createdAt         DateTime @default(now())
+  id                 String   @id @default(uuid())
+  tenantId           String
+  warehouseId        String
+  finishedProductId  String
+  bomId              String?
+  batchNumber        String
+  industryType       String   @default("water") // water, oil, milk, lpg
+  inputQty           Float    @default(0.0)
+  outputQty          Float
+  laborOverheadCost  Float    @default(0.0)
+  totalMaterialCost  Float    @default(0.0)
+  unitCost           Float    @default(0.0)
+  status             String   @default("completed") // planned, in_progress, completed, cancelled
+  qualityPassed      Boolean  @default(true)
+  tdsLevel           Float?   // Water TDS (ppm)
+  phLevel            Float?   // Water Ph
+  viscosityGrade     String?  // Oil viscosity
+  notes              String?
+  producedById       String
+  createdAt          DateTime @default(now())
 
-  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  warehouse       Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
-  finishedProduct Product   @relation(fields: [finishedProductId], references: [id], onDelete: Cascade)
-  producedBy      User      @relation(fields: [producedById], references: [id], onDelete: Cascade)
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  warehouse       Warehouse        @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  finishedProduct Product          @relation(fields: [finishedProductId], references: [id], onDelete: Cascade)
+  bom             BillOfMaterials? @relation(fields: [bomId], references: [id])
+  producedBy      User             @relation(fields: [producedById], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, batchNumber])
   @@index([tenantId])
   @@index([warehouseId])
   @@index([finishedProductId])
+}
+
+// ----------------------------------------------------
+// 13. PROCUREMENT, VENDORS & BILL OF MATERIALS (BOM)
+// ----------------------------------------------------
+model Vendor {
+  id             String   @id @default(uuid())
+  tenantId       String
+  name           String
+  phone          String?
+  email          String?
+  address        String?
+  taxId          String?
+  paymentTerms   String   @default("net_30") // cash_on_delivery, net_15, net_30, net_60
+  balancePayable Float    @default(0.0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  purchaseOrders  PurchaseOrder[]
+  paymentVouchers PaymentVoucher[]
+  ledgers         Ledger[]
+
+  @@index([tenantId])
+}
+
+model PurchaseOrder {
+  id                   String              @id @default(uuid())
+  tenantId             String
+  vendorId             String
+  poNumber             String
+  status               String              @default("issued") // draft, issued, received_partial, received_full, cancelled
+  totalAmount          Float               @default(0.0)
+  expectedDeliveryDate DateTime?
+  notes                String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  tenant        Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  vendor        Vendor              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  items         PurchaseOrderItem[]
+  goodsReceipts GoodsReceipt[]
+
+  @@unique([tenantId, poNumber])
+  @@index([tenantId])
+  @@index([vendorId])
+}
+
+model PurchaseOrderItem {
+  id          String   @id @default(uuid())
+  poId        String
+  productId   String
+  expectedQty Int
+  unitPrice   Float
+  totalPrice  Float
+
+  po          PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  product     Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([poId])
+  @@index([productId])
+}
+
+model GoodsReceipt {
+  id           String             @id @default(uuid())
+  tenantId     String
+  poId         String
+  grnNumber    String
+  receivedDate DateTime           @default(now())
+  notes        String?
+  createdAt    DateTime           @default(now())
+
+  tenant    Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  po        PurchaseOrder      @relation(fields: [poId], references: [id], onDelete: Cascade)
+  items     GoodsReceiptItem[]
+
+  @@unique([tenantId, grnNumber])
+  @@index([tenantId])
+  @@index([poId])
+}
+
+model GoodsReceiptItem {
+  id          String @id @default(uuid())
+  grnId       String
+  productId   String
+  expectedQty Int
+  receivedQty Int
+  rejectedQty Int    @default(0)
+  unitCost    Float
+  totalCost   Float
+
+  grn     GoodsReceipt @relation(fields: [grnId], references: [id], onDelete: Cascade)
+  product Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([grnId])
+  @@index([productId])
+}
+
+model BillOfMaterials {
+  id                String            @id @default(uuid())
+  tenantId          String
+  finishedProductId String
+  name              String
+  yieldQty          Float             @default(1.0)
+  status            String            @default("active") // active, archived
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  tenant          Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  finishedProduct Product           @relation("FinishedProductBOM", fields: [finishedProductId], references: [id], onDelete: Cascade)
+  items           BOMItem[]
+  batches         ProductionBatch[]
+
+  @@index([tenantId])
+  @@index([finishedProductId])
+}
+
+model BOMItem {
+  id           String   @id @default(uuid())
+  bomId        String
+  rawProductId String
+  qtyRequired  Float
+
+  bom        BillOfMaterials @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  rawProduct Product         @relation(fields: [rawProductId], references: [id], onDelete: Cascade)
+
+  @@index([bomId])
+  @@index([rawProductId])
 }
 
 // ----------------------------------------------------

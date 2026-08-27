@@ -4,8 +4,12 @@ export interface CreateProductDto {
   name: string;
   sku: string;
   category: string;
+  productType?: string; // raw_material, packaging, finished_good, returnable_container
   unit?: string;
   price: number;
+  costPrice?: number;
+  depositPrice?: number;
+  reorderLevel?: number;
   isReturnableContainer?: boolean;
   serialTrackingRequired?: boolean;
 }
@@ -13,8 +17,12 @@ export interface CreateProductDto {
 export interface UpdateProductDto {
   name?: string;
   category?: string;
+  productType?: string;
   unit?: string;
   price?: number;
+  costPrice?: number;
+  depositPrice?: number;
+  reorderLevel?: number;
   isReturnableContainer?: boolean;
   serialTrackingRequired?: boolean;
 }
@@ -31,12 +39,12 @@ export interface StockMovementDto {
   warehouseId?: string;
   riderId?: string;
   qty: number;
-  transactionType: 'load' | 'deliver' | 'return' | 'breakage' | 'wastage' | 'transfer';
+  transactionType: 'load' | 'deliver' | 'return' | 'breakage' | 'wastage' | 'transfer' | 'purchase_receipt' | 'production_yield' | 'production_consumption';
   referenceId?: string;
 }
 
 export class ProductService {
-  static async listProducts(tenantId: string, query: { search?: string; category?: string; isReturnable?: boolean }) {
+  static async listProducts(tenantId: string, query: { search?: string; category?: string; productType?: string; isReturnable?: boolean }) {
     const where: any = { tenantId };
 
     if (query.search) {
@@ -46,11 +54,27 @@ export class ProductService {
       ];
     }
     if (query.category) where.category = query.category;
+    if (query.productType) where.productType = query.productType;
     if (query.isReturnable !== undefined) where.isReturnableContainer = String(query.isReturnable) === 'true';
 
-    return prisma.product.findMany({
+    const products = await prisma.product.findMany({
       where,
+      include: {
+        stockLedgers: { select: { qty: true } }
+      },
       orderBy: { createdAt: 'desc' }
+    });
+
+    // Compute total available stock per product
+    return products.map((p) => {
+      const currentStock = p.stockLedgers.reduce((acc, item) => acc + item.qty, 0);
+      const isLowStock = currentStock <= p.reorderLevel;
+      const { stockLedgers, ...productData } = p;
+      return {
+        ...productData,
+        currentStock,
+        isLowStock
+      };
     });
   }
 
@@ -68,8 +92,12 @@ export class ProductService {
         name: dto.name,
         sku: dto.sku,
         category: dto.category,
+        productType: dto.productType || 'finished_good',
         unit: dto.unit || 'unit',
         price: dto.price,
+        costPrice: dto.costPrice || 0.0,
+        depositPrice: dto.depositPrice || 0.0,
+        reorderLevel: dto.reorderLevel !== undefined ? dto.reorderLevel : 10,
         isReturnableContainer: dto.isReturnableContainer || false,
         serialTrackingRequired: dto.serialTrackingRequired || false
       }
@@ -85,8 +113,12 @@ export class ProductService {
       data: {
         ...(dto.name && { name: dto.name }),
         ...(dto.category && { category: dto.category }),
+        ...(dto.productType && { productType: dto.productType }),
         ...(dto.unit && { unit: dto.unit }),
         ...(dto.price !== undefined && { price: dto.price }),
+        ...(dto.costPrice !== undefined && { costPrice: dto.costPrice }),
+        ...(dto.depositPrice !== undefined && { depositPrice: dto.depositPrice }),
+        ...(dto.reorderLevel !== undefined && { reorderLevel: dto.reorderLevel }),
         ...(dto.isReturnableContainer !== undefined && { isReturnableContainer: dto.isReturnableContainer }),
         ...(dto.serialTrackingRequired !== undefined && { serialTrackingRequired: dto.serialTrackingRequired })
       }
@@ -126,7 +158,6 @@ export class ProductService {
       include: { product: true, warehouse: true }
     });
 
-    // Group running balance by product & warehouse
     const summaryMap: Record<string, { product: any; warehouse: any; currentQty: number }> = {};
 
     for (const entry of ledgers) {
@@ -138,13 +169,7 @@ export class ProductService {
           currentQty: 0
         };
       }
-
-      // Add or subtract based on transaction type
-      if (['load', 'return', 'transfer'].includes(entry.transactionType)) {
-        summaryMap[key].currentQty += entry.qty;
-      } else if (['deliver', 'breakage', 'wastage'].includes(entry.transactionType)) {
-        summaryMap[key].currentQty -= entry.qty;
-      }
+      summaryMap[key].currentQty += entry.qty;
     }
 
     return Object.values(summaryMap);

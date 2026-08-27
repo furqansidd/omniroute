@@ -49,6 +49,7 @@ export const DashboardLayout: React.FC<Props> = ({ children, activeTab, setActiv
     {
       title: 'INVENTORY & PRODUCTION',
       items: [
+        { id: 'purchase', label: 'Procurement & Purchase', icon: ShoppingCart, perm: { module: 'products', action: 'read' } },
         { id: 'products', label: 'Products & Stock', icon: Package, perm: { module: 'products', action: 'read' } },
         { id: 'production', label: 'Production & QC', icon: Factory, perm: { module: 'products', action: 'read' } },
         { id: 'breakage', label: 'Breakage & Spoilage', icon: AlertOctagon, perm: { module: 'products', action: 'read' } },

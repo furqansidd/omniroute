@@ -1,14 +1,34 @@
 import { Request, Response } from 'express';
 import { ProductionService } from './production.service.js';
 
-const productionService = new ProductionService();
-
 export class ProductionController {
+  // BOM Recipes
+  static async listBOMs(req: Request, res: Response) {
+    try {
+      const tenantId = req.user!.tenantId;
+      const boms = await ProductionService.listBOMs(tenantId);
+      res.json({ success: true, data: boms });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  static async createBOM(req: Request, res: Response) {
+    try {
+      const tenantId = req.user!.tenantId;
+      const bom = await ProductionService.createBOM(tenantId, req.body);
+      res.status(201).json({ success: true, data: bom });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  }
+
+  // Batches
   static async recordProductionBatch(req: Request, res: Response) {
     try {
       const tenantId = req.user!.tenantId;
       const producedById = req.user!.userId;
-      const batch = await productionService.recordProductionBatch(tenantId, producedById, req.body);
+      const batch = await ProductionService.recordProductionBatch(tenantId, producedById, req.body);
       res.status(201).json({ success: true, data: batch });
     } catch (error: any) {
       console.error('RECORD BATCH ERROR:', error);
@@ -26,7 +46,7 @@ export class ProductionController {
       if (qualityPassed !== undefined) filters.qualityPassed = qualityPassed === 'true';
       if (search) filters.search = String(search);
 
-      const batches = await productionService.getProductionBatches(tenantId, filters);
+      const batches = await ProductionService.getProductionBatches(tenantId, filters);
       res.json({ success: true, data: batches });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
@@ -36,7 +56,7 @@ export class ProductionController {
   static async getProductionStats(req: Request, res: Response) {
     try {
       const tenantId = req.user!.tenantId;
-      const stats = await productionService.getProductionStats(tenantId);
+      const stats = await ProductionService.getProductionStats(tenantId);
       res.json({ success: true, data: stats });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });

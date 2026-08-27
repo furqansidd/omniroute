@@ -22,6 +22,8 @@ import { productionRouter } from './modules/production/production.router.js';
 import { saasRouter } from './modules/saas/saas.router.js';
 import superadminRouter from './modules/superadmin/superadmin.router.js';
 
+import { purchaseRouter } from './modules/purchase/purchase.router.js';
+
 export const app = express();
 
 app.use(cors());
@@ -37,6 +39,7 @@ app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/rbac', rbacRouter);
 app.use('/api/v1/tenants', tenantRouter);
 app.use('/api/v1/customers', customerRouter);
+app.use('/api/v1/purchase', purchaseRouter);
 app.use('/api/v1', productRouter);
 app.use('/api/v1', zoneRouter);
 app.use('/api/v1', orderRouter);

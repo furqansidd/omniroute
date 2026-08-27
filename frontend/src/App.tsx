@@ -19,6 +19,7 @@ import { BreakageWastageTracker } from './pages/BreakageWastageTracker';
 import { ReportsAnalytics } from './pages/ReportsAnalytics';
 import { ReceiptPrinterStudio } from './pages/ReceiptPrinterStudio';
 import { ProductionTracker } from './pages/ProductionTracker';
+import { PurchaseManagement } from './pages/PurchaseManagement';
 import { SaaSPlanMetering } from './pages/SaaSPlanMetering';
 import { SuperAdminDashboard } from './pages/SuperAdminDashboard';
 import './styles/theme.css';
@@ -68,6 +69,8 @@ const MainApp: React.FC = () => {
         return <CustomerManagement />;
       case 'sleeping':
         return <SleepingCustomerRadar />;
+      case 'purchase':
+        return <PurchaseManagement />;
       case 'products':
         return <ProductStockManagement />;
       case 'production':

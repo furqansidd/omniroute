@@ -8,6 +8,7 @@ export const financeRouter = Router();
 financeRouter.use(authenticateToken);
 
 // Vouchers CRUD & Receipts
+financeRouter.get('/finance/overview', requirePermission('finance', 'read'), FinanceController.getFinancialOverview);
 financeRouter.get('/finance/vouchers', requirePermission('finance', 'read'), FinanceController.getVouchers);
 financeRouter.post('/finance/vouchers', requirePermission('finance', 'create'), FinanceController.createVoucher);
 
@@ -17,6 +18,5 @@ financeRouter.get('/finance/customer-ledger/:customerId', requirePermission('fin
 // General Ledger Audit Log
 financeRouter.get('/finance/general-ledger', requirePermission('finance', 'read'), FinanceController.getGeneralLedger);
 
-// Reports: Profit & Loss Statement and Balance Sheet
+// Reports: Profit & Loss Statement
 financeRouter.get('/finance/pnl', requirePermission('reports', 'read'), FinanceController.getPnLReport);
-financeRouter.get('/finance/balance-sheet', requirePermission('reports', 'read'), FinanceController.getBalanceSheetReport);

@@ -7,6 +7,10 @@ export const productionRouter = Router();
 
 productionRouter.use(authenticateToken);
 
+// BOM Recipes
+productionRouter.get('/production/boms', requirePermission('products', 'read'), ProductionController.listBOMs);
+productionRouter.post('/production/boms', requirePermission('products', 'create'), ProductionController.createBOM);
+
 // Production Batches & QC Checks
 productionRouter.post('/production/batches', requirePermission('products', 'create'), ProductionController.recordProductionBatch);
 productionRouter.get('/production/batches', requirePermission('products', 'read'), ProductionController.getProductionBatches);
