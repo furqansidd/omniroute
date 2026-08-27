@@ -16,6 +16,7 @@ interface BOMItem {
   id: string;
   name: string;
   yieldQty: number;
+  finishedProductId: string;
   finishedProduct: { id: string; name: string; sku: string; unit: string; costPrice: number };
   items: Array<{
     id: string;
@@ -62,8 +63,8 @@ export const ProductionTracker: React.FC = () => {
   const [selectedProductId, setSelectedProductId] = useState('');
   const [selectedBomId, setSelectedBomId] = useState('');
   const [batchNumber, setBatchNumber] = useState('');
-  const [outputQty, setOutputQty] = useState(480);
-  const [laborOverheadCost, setLaborOverheadCost] = useState(2000);
+  const [outputQty, setOutputQty] = useState(100);
+  const [laborOverheadCost, setLaborOverheadCost] = useState(3000);
   const [qualityPassed, setQualityPassed] = useState(true);
   const [tdsLevel, setTdsLevel] = useState(120);
   const [phLevel, setPhLevel] = useState(7.2);
@@ -71,11 +72,13 @@ export const ProductionTracker: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // BOM Form State
-  const [bomName, setBomName] = useState('');
+  const [bomName, setBomName] = useState('Pure Fresh Milk 1L Recipe');
   const [bomFinishedProductId, setBomFinishedProductId] = useState('');
+  const [customFinishedName, setCustomFinishedName] = useState('Pure Fresh Milk 1L Pack');
   const [bomYieldQty, setBomYieldQty] = useState(1.0);
-  const [bomIngredients, setBomIngredients] = useState<Array<{ rawProductId: string; qtyRequired: number }>>([
-    { rawProductId: '', qtyRequired: 1.0 }
+  const [bomIngredients, setBomIngredients] = useState<Array<{ rawProductId: string; customRawName?: string; qtyRequired: number }>>([
+    { rawProductId: '', customRawName: 'Raw Milk (Liters)', qtyRequired: 1.0 },
+    { rawProductId: '', customRawName: 'Packaging Pouches / Packets', qtyRequired: 1.0 }
   ]);
 
   const fetchData = async () => {
@@ -105,7 +108,10 @@ export const ProductionTracker: React.FC = () => {
 
   const handleRecordBatch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedWarehouseId || !selectedProductId || !outputQty) return;
+    if (!selectedWarehouseId || !selectedProductId || !outputQty) {
+      alert('Please select warehouse depot, finished product, and output quantity');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -128,7 +134,7 @@ export const ProductionTracker: React.FC = () => {
       if (res.success) {
         setShowBatchModal(false);
         fetchData();
-        alert('Production batch completed! Materials deducted, finished stock updated & financial costing logged.');
+        alert('Production batch completed! Raw materials deducted from stock, finished goods credited & unit cost updated.');
       } else {
         alert(`Error recording batch: ${res.error}`);
       }
@@ -141,28 +147,101 @@ export const ProductionTracker: React.FC = () => {
 
   const handleCreateBOM = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!bomFinishedProductId || !bomName || bomIngredients.some((i) => !i.rawProductId || i.qtyRequired <= 0)) {
-      alert('Please complete all recipe fields');
+
+    let targetFinishedId = bomFinishedProductId;
+
+    // Auto-resolve custom finished product name
+    if (!targetFinishedId && customFinishedName.trim()) {
+      const existing = products.find(
+        (p) => p.name.toLowerCase() === customFinishedName.trim().toLowerCase()
+      );
+      if (existing) {
+        targetFinishedId = existing.id;
+      } else {
+        const createRes = await apiRequest<ProductItem>('/products', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: customFinishedName.trim(),
+            sku: `FG-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 100)}`,
+            category: 'dairy',
+            unit: 'packet',
+            price: 200,
+            costPrice: 183,
+            productType: 'finished_good'
+          })
+        });
+        if (createRes.success && createRes.data) {
+          targetFinishedId = createRes.data.id;
+        }
+      }
+    }
+
+    if (!targetFinishedId) {
+      alert('Please select or type a Finished Good Product Name');
       return;
+    }
+
+    // Resolve ingredients raw materials
+    const resolvedIngredients = [];
+    for (const ing of bomIngredients) {
+      let rId = ing.rawProductId;
+      if (!rId && ing.customRawName?.trim()) {
+        const existingRaw = products.find(
+          (p) => p.name.toLowerCase() === ing.customRawName!.trim().toLowerCase()
+        );
+        if (existingRaw) {
+          rId = existingRaw.id;
+        } else {
+          const createRawRes = await apiRequest<ProductItem>('/products', {
+            method: 'POST',
+            body: JSON.stringify({
+              name: ing.customRawName.trim(),
+              sku: `RAW-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 100)}`,
+              category: 'raw_material',
+              unit: 'unit',
+              price: 150,
+              costPrice: 150,
+              productType: 'raw_material'
+            })
+          });
+          if (createRawRes.success && createRawRes.data) {
+            rId = createRawRes.data.id;
+          }
+        }
+      }
+
+      if (!rId) {
+        alert('Please fill out all raw material/packaging ingredient names');
+        return;
+      }
+
+      resolvedIngredients.push({
+        rawProductId: rId,
+        qtyRequired: Number(ing.qtyRequired)
+      });
     }
 
     try {
       const res = await apiRequest('/production/boms', {
         method: 'POST',
         body: JSON.stringify({
-          finishedProductId: bomFinishedProductId,
-          name: bomName,
+          finishedProductId: targetFinishedId,
+          name: bomName.trim() || `${customFinishedName} Recipe`,
           yieldQty: Number(bomYieldQty),
-          items: bomIngredients
+          items: resolvedIngredients
         })
       });
 
       if (res.success) {
         setShowBOMModal(false);
-        setBomName('');
+        setBomName('Pure Fresh Milk 1L Recipe');
         setBomFinishedProductId('');
-        setBomIngredients([{ rawProductId: '', qtyRequired: 1.0 }]);
-        fetchData();
+        setCustomFinishedName('Pure Fresh Milk 1L Pack');
+        setBomIngredients([
+          { rawProductId: '', customRawName: 'Raw Milk (Liters)', qtyRequired: 1.0 },
+          { rawProductId: '', customRawName: 'Packaging Pouches / Packets', qtyRequired: 1.0 }
+        ]);
+        await fetchData();
         alert('Recipe / Bill of Materials created successfully!');
       } else {
         alert(`Error: ${res.error}`);
@@ -185,7 +264,7 @@ export const ProductionTracker: React.FC = () => {
   const estUnitCost = outputQty > 0 ? estTotalCost / outputQty : 0;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 font-sans">
       {/* PAGE HEADER */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -209,7 +288,11 @@ export const ProductionTracker: React.FC = () => {
             size="sm"
             onClick={() => {
               if (warehouses.length > 0) setSelectedWarehouseId(warehouses[0].id);
-              if (products.length > 0) setSelectedProductId(products[0].id);
+              if (products.length > 0) {
+                const finished = products.find((p) => p.productType === 'finished_good');
+                if (finished) setSelectedProductId(finished.id);
+                else setSelectedProductId(products[0].id);
+              }
               setShowBatchModal(true);
             }}
           >
@@ -224,13 +307,13 @@ export const ProductionTracker: React.FC = () => {
           onClick={() => setActiveTab('batches')}
           className={`pb-2 text-sm font-semibold border-b-2 ${activeTab === 'batches' ? 'border-brand-600 text-brand-600' : 'border-transparent text-slate-500'}`}
         >
-          Production Batches Log
+          Production Batches Log ({batches.length})
         </button>
         <button
           onClick={() => setActiveTab('boms')}
           className={`pb-2 text-sm font-semibold border-b-2 ${activeTab === 'boms' ? 'border-brand-600 text-brand-600' : 'border-transparent text-slate-500'}`}
         >
-          Recipe Formulas (Bill of Materials)
+          Recipe Formulas / BOM ({boms.length})
         </button>
       </div>
 
@@ -245,7 +328,7 @@ export const ProductionTracker: React.FC = () => {
               <TableHead>FINISHED PRODUCT</TableHead>
               <TableHead>UNITS PRODUCED</TableHead>
               <TableHead>UNIT COST</TableHead>
-              <TableHead>TOTAL COST</TableHead>
+              <TableHead>TOTAL BATCH COST</TableHead>
               <TableHead>QC STATUS</TableHead>
             </TableRow>
           </TableHeader>
@@ -298,13 +381,13 @@ export const ProductionTracker: React.FC = () => {
                   <div className="flex justify-between items-start">
                     <div>
                       <h3 className="font-bold text-slate-900 text-base">{bom.name}</h3>
-                      <div className="text-xs text-brand-600 font-medium">Finished Good: {bom.finishedProduct.name}</div>
+                      <div className="text-xs text-brand-600 font-medium">Finished Good Target: {bom.finishedProduct.name}</div>
                     </div>
                     <Badge variant="emerald">Yield: {bom.yieldQty} {bom.finishedProduct.unit}</Badge>
                   </div>
 
                   <div className="bg-slate-50 p-3 rounded-md text-xs space-y-1">
-                    <div className="font-bold text-slate-700 mb-1">Raw Ingredients / Packaging List:</div>
+                    <div className="font-bold text-slate-700 mb-1">Raw Ingredients & Packaging Formula:</div>
                     {bom.items.map((item) => (
                       <div key={item.id} className="flex justify-between text-slate-600">
                         <span>• {item.rawProduct.name} ({item.rawProduct.productType}):</span>
@@ -336,6 +419,7 @@ export const ProductionTracker: React.FC = () => {
                 onChange={(e) => setSelectedWarehouseId(e.target.value)}
                 className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-brand-500 mt-1"
               >
+                {warehouses.length === 0 && <option value="">Central Depot</option>}
                 {warehouses.map(w => (
                   <option key={w.id} value={w.id}>{w.name}</option>
                 ))}
@@ -352,34 +436,38 @@ export const ProductionTracker: React.FC = () => {
                   const b = boms.find(x => x.finishedProductId === e.target.value);
                   if (b) setSelectedBomId(b.id);
                 }}
-                className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-brand-500 mt-1"
+                className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-brand-500 mt-1 font-bold text-slate-900"
               >
                 <option value="">-- Select Finished Product --</option>
-                {products.filter(p => p.productType === 'finished_good' || !p.productType).map(p => (
-                  <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>
-                ))}
+                {products
+                  .filter((p) => p.productType === 'finished_good' || !p.productType)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} [{p.sku}]
+                    </option>
+                  ))}
               </select>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <Input label="Output Units to Produce *" type="number" required value={outputQty} onChange={(e) => setOutputQty(Number(e.target.value))} />
-            <Input label="Labor & Overhead Expenses (Rs.)" type="number" value={laborOverheadCost} onChange={(e) => setLaborOverheadCost(Number(e.target.value))} />
+            <Input label="Labor Charge & Overhead Expenses (Rs.)" type="number" value={laborOverheadCost} onChange={(e) => setLaborOverheadCost(Number(e.target.value))} />
           </div>
 
           {/* LIVE COST ESTIMATION BOX */}
           <div className="p-3 bg-brand-50 border border-brand-200 rounded-md text-xs space-y-1 text-slate-800">
-            <div className="font-bold text-brand-900">📊 Live Batch Costing Preview:</div>
+            <div className="font-bold text-brand-900">📊 Live Production Cost Preview:</div>
             <div className="flex justify-between">
-              <span>Estimated Raw Materials + Packaging Cost:</span>
+              <span>Estimated Raw Material + Packaging Cost:</span>
               <span className="font-semibold">Rs. {estMaterialCost.toLocaleString()}</span>
             </div>
             <div className="flex justify-between">
-              <span>Labor / Daily Production Overhead:</span>
+              <span>Labor Charge + Overhead / Commission:</span>
               <span className="font-semibold">Rs. {laborOverheadCost.toLocaleString()}</span>
             </div>
             <div className="flex justify-between border-t border-brand-200 pt-1 font-bold text-sm text-brand-900">
-              <span>Estimated Unit Production Cost:</span>
+              <span>Finished Good Unit Cost (Per Packet):</span>
               <span>Rs. {estUnitCost.toFixed(2)} / unit</span>
             </div>
           </div>
@@ -413,18 +501,37 @@ export const ProductionTracker: React.FC = () => {
         maxWidth="lg"
       >
         <form onSubmit={handleCreateBOM} className="space-y-4">
-          <Input label="Recipe Name *" required placeholder="e.g. 1L Milk Packet Recipe" value={bomName} onChange={(e) => setBomName(e.target.value)} />
+          <Input label="Recipe Formula Name *" required placeholder="e.g. Pure Fresh Milk 1L Recipe" value={bomName} onChange={(e) => setBomName(e.target.value)} />
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-semibold text-slate-700">Finished Product *</label>
+          <div className="space-y-2 bg-slate-50 p-3 rounded-md border border-slate-200">
+            <label className="text-xs font-bold text-slate-900 block">Target Finished Good Product *</label>
+            
+            {/* Custom Finished Product Name Text Input */}
+            <input
+              type="text"
+              required
+              placeholder="e.g. Pure Fresh Milk 1L Pack"
+              value={customFinishedName}
+              onChange={(e) => {
+                setCustomFinishedName(e.target.value);
+                setBomFinishedProductId('');
+              }}
+              className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md font-bold text-slate-900"
+            />
+
+            {/* Quick Fill Dropdown */}
+            {products.length > 0 && (
               <select
-                required
                 value={bomFinishedProductId}
-                onChange={(e) => setBomFinishedProductId(e.target.value)}
-                className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-brand-500 mt-1"
+                onChange={(e) => {
+                  const selId = e.target.value;
+                  setBomFinishedProductId(selId);
+                  const p = products.find(x => x.id === selId);
+                  if (p) setCustomFinishedName(p.name);
+                }}
+                className="w-full px-3 py-1.5 text-xs bg-slate-200 border border-slate-300 rounded-md text-slate-700"
               >
-                <option value="">-- Choose Target Finished Product --</option>
+                <option value="">-- Quick Select Existing Finished Good --</option>
                 {products
                   .filter((p) => p.productType === 'finished_good' || !p.productType)
                   .map((p) => (
@@ -433,38 +540,36 @@ export const ProductionTracker: React.FC = () => {
                     </option>
                   ))}
               </select>
-            </div>
-            <Input label="Yield Output Qty" type="number" value={bomYieldQty} onChange={(e) => setBomYieldQty(Number(e.target.value))} />
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Yield Output Qty (Per Batch Unit)" type="number" value={bomYieldQty} onChange={(e) => setBomYieldQty(Number(e.target.value))} />
           </div>
 
           <div>
-            <label className="text-xs font-bold text-slate-800 mb-1 block">Raw Material & Packaging Ingredients</label>
+            <label className="text-xs font-bold text-slate-800 mb-2 block">Raw Ingredients & Packaging List *</label>
             {bomIngredients.map((ing, idx) => (
-              <div key={idx} className="flex gap-2 mb-2 items-center">
-                <select
+              <div key={idx} className="flex gap-2 mb-2 items-center bg-white p-2 border border-slate-200 rounded-md">
+                <input
+                  type="text"
                   required
-                  value={ing.rawProductId}
+                  placeholder="e.g. Raw Milk 1L / Pouch"
+                  value={ing.customRawName || ''}
                   onChange={(e) => {
                     const next = [...bomIngredients];
-                    next[idx].rawProductId = e.target.value;
+                    next[idx].customRawName = e.target.value;
+                    next[idx].rawProductId = '';
                     setBomIngredients(next);
                   }}
-                  className="flex-2 px-3 py-2 text-sm bg-white border border-slate-300 rounded-md"
-                >
-                  <option value="">-- Select Raw Material / Packaging --</option>
-                  {products
-                    .filter((p) => p.productType !== 'finished_good')
-                    .map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} [{p.productType ? p.productType.toUpperCase().replace('_', ' ') : 'RAW MATERIAL'}]
-                      </option>
-                    ))}
-                </select>
+                  className="flex-2 px-3 py-1.5 text-sm bg-slate-50 border border-slate-300 rounded-md font-semibold"
+                />
 
                 <input
                   type="number"
                   step="0.01"
                   required
+                  min={0.01}
                   placeholder="Qty Required"
                   value={ing.qtyRequired}
                   onChange={(e) => {
@@ -472,14 +577,14 @@ export const ProductionTracker: React.FC = () => {
                     next[idx].qtyRequired = Number(e.target.value);
                     setBomIngredients(next);
                   }}
-                  className="flex-1 px-3 py-2 text-sm bg-white border border-slate-300 rounded-md"
+                  className="flex-1 px-3 py-1.5 text-sm bg-slate-50 border border-slate-300 rounded-md font-bold text-brand-700"
                 />
 
                 {bomIngredients.length > 1 && (
                   <button
                     type="button"
                     onClick={() => setBomIngredients(bomIngredients.filter((_, i) => i !== idx))}
-                    className="text-rose-500 text-lg font-bold"
+                    className="text-rose-500 text-lg font-bold px-2"
                   >
                     ✕
                   </button>
@@ -488,10 +593,10 @@ export const ProductionTracker: React.FC = () => {
             ))}
             <button
               type="button"
-              onClick={() => setBomIngredients([...bomIngredients, { rawProductId: '', qtyRequired: 1.0 }])}
+              onClick={() => setBomIngredients([...bomIngredients, { rawProductId: '', customRawName: 'Packaging Pouch', qtyRequired: 1.0 }])}
               className="text-xs font-bold text-brand-600 hover:underline mt-1"
             >
-              + Add Ingredient
+              + Add Raw Ingredient / Packaging Line
             </button>
           </div>
 
@@ -499,7 +604,7 @@ export const ProductionTracker: React.FC = () => {
             <Button type="button" variant="outline" onClick={() => setShowBOMModal(false)}>
               Cancel
             </Button>
-            <Button type="submit">Save Recipe</Button>
+            <Button type="submit">Save Recipe Formula (BOM)</Button>
           </div>
         </form>
       </Dialog>

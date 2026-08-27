@@ -170,7 +170,7 @@ export class OrderService {
           delivery: { include: { rider: true } }
         }
       });
-    });
+    }, { timeout: 30000 });
   }
 
   static async updateOrderStatus(tenantId: string, orderId: string, status: string, riderId?: string) {
@@ -207,7 +207,7 @@ export class OrderService {
       }
 
       return updatedOrder;
-    });
+    }, { timeout: 30000 });
   }
 
   static async listSchedules(tenantId: string, query: { customerId?: string; status?: string }) {

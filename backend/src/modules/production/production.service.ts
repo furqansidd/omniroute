@@ -214,7 +214,7 @@ export class ProductionService {
       }
 
       return createdBatch;
-    });
+    }, { timeout: 30000 });
   }
 
   static async getProductionBatches(tenantId: string, filters: { warehouseId?: string; qualityPassed?: boolean; search?: string } = {}) {

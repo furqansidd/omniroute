@@ -94,6 +94,8 @@ model User {
   breakageReported BreakageWastageLog[] @relation("ReportedBy")
   breakageLiability BreakageWastageLog[] @relation("ResponsibleRider")
   producedBatches   ProductionBatch[]
+  riderPaymentVouchers PaymentVoucher[]  @relation("RiderPaymentVouchers")
+  riderLedgers      Ledger[]             @relation("RiderLedgers")
 
   @@unique([tenantId, email])
   @@unique([tenantId, phone])
@@ -475,9 +477,10 @@ model PaymentVoucher {
   tenantId        String
   customerId      String?
   vendorId        String?
+  riderId         String?
   voucherNumber   String
   voucherType     String   @default("receipt") // receipt, payment, debit_note, credit_note
-  category        String   @default("customer_collection") // customer_collection, fuel_expense, rider_payout, supplier_payment, equipment_purchase, other
+  category        String   @default("customer_collection") // customer_collection, fuel_expense, rider_payout, supplier_payment, rider_collection_handover, equipment_purchase, other
   accountName     String?  // Cash, Bank, Expense Category
   amount          Float
   paymentMethod   String   @default("cash") // cash, bank_transfer, check, card
@@ -488,11 +491,13 @@ model PaymentVoucher {
   tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   customer        Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
   vendor          Vendor?   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  rider           User?     @relation("RiderPaymentVouchers", fields: [riderId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, voucherNumber])
   @@index([tenantId])
   @@index([customerId])
   @@index([vendorId])
+  @@index([riderId])
 }
 
 model JournalEntry {
@@ -516,9 +521,10 @@ model Ledger {
   tenantId        String
   customerId      String?
   vendorId        String?
+  riderId         String?
   journalEntryId  String
   accountCategory String        @default("asset") // asset, liability, equity, revenue, expense
-  accountName     String        @default("General") // Accounts Receivable, Accounts Payable, Cash, Delivery Sales, Operating Expense, Container Deposit
+  accountName     String        @default("General") // Accounts Receivable, Accounts Payable, Rider Cash Wallet, Cash, Delivery Sales, Operating Expense
   description     String?
   debit           Float         @default(0.0)
   credit          Float         @default(0.0)
@@ -528,11 +534,13 @@ model Ledger {
   tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   customer        Customer?     @relation(fields: [customerId], references: [id])
   vendor          Vendor?       @relation(fields: [vendorId], references: [id])
+  rider           User?         @relation("RiderLedgers", fields: [riderId], references: [id])
   journalEntry    JournalEntry  @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([customerId])
   @@index([vendorId])
+  @@index([riderId])
 }
 
 // ----------------------------------------------------

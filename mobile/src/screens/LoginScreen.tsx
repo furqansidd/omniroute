@@ -40,8 +40,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   };
 
   const handleSignup = async () => {
-    if (!name || !identifier || !password) {
-      setErrorMsg('Full Name, Phone, and Password are required');
+    if (!name || !identifier || !password || !companyName) {
+      setErrorMsg('Full Name, Business Name, Phone, and Password are required');
       return;
     }
 
@@ -104,16 +104,30 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         ) : null}
 
         {isSignup && (
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Full Name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. Ali Khan"
-              placeholderTextColor="#94a3b8"
-              value={name}
-              onChangeText={setName}
-            />
-          </View>
+          <>
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Full Name *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. Ali Khan"
+                placeholderTextColor="#94a3b8"
+                value={name}
+                onChangeText={setName}
+              />
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Business Name / Owner Company Name *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. AquaPure Fresh Milk & Dairy"
+                placeholderTextColor="#94a3b8"
+                value={companyName}
+                onChangeText={setCompanyName}
+                autoCapitalize="words"
+              />
+            </View>
+          </>
         )}
 
         <View style={styles.inputContainer}>

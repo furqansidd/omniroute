@@ -109,6 +109,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const hasPermission = (module: string, action: string): boolean => {
     if (!user) return false;
+    const roleName = user.role?.name?.toLowerCase() || '';
+    if (roleName.includes('owner') || roleName.includes('admin')) {
+      return true;
+    }
     return user.permissions.some(
       (p) => (p.module === module || p.module === '*') && (p.action === action || p.action === '*')
     );
